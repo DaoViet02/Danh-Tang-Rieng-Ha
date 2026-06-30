@@ -1,1 +1,569 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dual Layer 3D Heart Confession</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background-color: #000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        
+        .message-container {
+            position: absolute;
+            top: 8%;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            width: 85%;
+            max-width: 600px;
+            z-index: 2;
+            color: #fff;
+            line-height: 1.6;
+            transition: opacity 1.5s ease;
+            opacity: 1;
+        }
+        .main-text { font-size: 15px; font-weight: 400; opacity: 0.9; margin-bottom: 8px; min-height: 48px; }
+        .highlight-text { font-size: 18px; font-weight: 600; color: #ff4d4d; letter-spacing: 0.5px; margin-bottom: 6px; min-height: 28px; }
+        .korean-text { font-size: 16px; font-weight: 500; color: #ff8585; letter-spacing: 0.5px; margin-top: 4px; min-height: 25px; }
+        
+        .bottom-message-container {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            width: 88%;
+            max-width: 580px;
+            z-index: 2;
+            color: #fff;
+            line-height: 1.8;
+            pointer-events: none;
+        }
+        .sub-text {
+            font-size: 15px;
+            font-weight: 400;
+            color: #ffa1b2;
+            text-shadow: 0 0 5px rgba(255,100,150,0.5);
+            opacity: 0;
+            transform: translateY(-5px);
+            transition: opacity 1.2s ease, transform 1.2s ease;
+            display: none;
+        }
+        .sub-text.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
 
+        .cursor { display: inline-block; width: 2px; background-color: #ff4d4d; margin-left: 2px; animation: blink 0.6s infinite; vertical-align: middle; }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        .hint-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 15px;
+            letter-spacing: 1px;
+            z-index: 3;
+            display: none;
+            text-align: center;
+            pointer-events: none;
+            animation: pulseHint 1.5s infinite alternate;
+            text-shadow: 0 0 8px rgba(255, 102, 178, 0.5);
+        }
+        @keyframes pulseHint {
+            0% { opacity: 0.3; transform: translate(-50%, -50%) scale(0.98); }
+            100% { opacity: 1; transform: translate(-50%, -50%) scale(1.02); }
+        }
+
+        #clickOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 4;
+            display: none;
+            background: transparent;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="message-container" id="msgContainer">
+        <p class="main-text" id="text1"></p>
+        <p class="highlight-text" id="text2"></p>
+        <p class="korean-text" id="text3"></p>
+    </div>
+
+    <div class="bottom-message-container" id="bottomContainer">
+        <p class="sub-text" id="subText"></p>
+    </div>
+
+    <div class="hint-text" id="hintText">❤️ Bạn hãy chạm 2 lần vào màn hình ❤️</div>
+    <div id="clickOverlay"></div>
+
+    <canvas id="heartCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('heartCanvas');
+        const ctx = canvas.getContext('2d');
+        const overlay = document.getElementById('clickOverlay');
+        const hint = document.getElementById('hintText');
+        const msgContainer = document.getElementById('msgContainer');
+        const bottomContainer = document.getElementById('bottomContainer');
+        const subTextElem = document.getElementById('subText');
+
+        let IMAGE_ENLARGE = window.innerWidth < 500 ? 8.0 : 11.5; 
+        let centerY = window.innerHeight / 2; 
+
+        const str1 = "Thật ra mình đã thích bạn từ những ngày đầu tiên gặp mặt, nhưng vì khoảng cách cô trò nên đến tận bây giờ mới dám ngỏ lời.";
+        const str2 = "Mình thật sự rất thích bạn!";
+        const str3 = "난 너를 진심으로 사랑하고, 늘 함께하고 싶어.";
+
+        // Các đoạn chữ dưới tim đã được chia tách hoàn chỉnh
+        const subStr1 = "Tớ biết mình không giỏi nói chuyện, nên tớ làm cái này để thay cho lời muốn nói....";
+        const subStr2 = "Tớ không muốn cậu cảm thấy khó xử!";
+        const subStr3 = "Thật lòng tớ không muốn bỏ lỡ cậu chút nào, lại càng không muốn thấy cậu bên cạnh ai khác.";
+        const subStr4 = "Nhưng ở thời điểm hiện tại nếu chúng mình chưa thể ở bên nhau, tớ chỉ mong rằng sau này, người nắm tay cậu sẽ là tớ❤️";
+
+        let stage = "typing"; 
+        let gatherProgress = 0; 
+        let colorProgress = 0;  
+        const fallingHearts = []; 
+        const sparkles = []; 
+        const borderFlowParticles = [];
+
+        let partBase = [];
+        let partEdge = [];
+        let partCenter = [];
+        let partOuter = [];
+
+        function typeWriter(id, text, speed, callback) {
+            let i = 0;
+            const elem = document.getElementById(id);
+            elem.innerHTML = '<span class="cursor"></span>';
+            function type() {
+                if (i < text.length) {
+                    elem.innerHTML = text.substring(0, i + 1) + '<span class="cursor"></span>';
+                    i++;
+                    setTimeout(type, speed);
+                } else {
+                    elem.innerHTML = text;
+                    if (callback) callback();
+                }
+            }
+            type();
+        }
+
+        setTimeout(() => {
+            typeWriter("text1", str1, 55, () => {
+                setTimeout(() => {
+                    typeWriter("text2", str2, 70, () => {
+                        setTimeout(() => {
+                            typeWriter("text3", str3, 80, () => {
+                                stage = "waiting_click";
+                                hint.style.display = "block";
+                                overlay.style.display = "block";
+                            });
+                        }, 600);
+                    });
+                }, 600);
+            });
+        }, 800);
+
+        let lastTap = 0;
+        overlay.addEventListener('click', (e) => {
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTap;
+            if (tapLength < 300 && tapLength > 0) {
+                if (stage === "waiting_click") {
+                    hint.style.display = "none";
+                    overlay.style.display = "none";
+                    
+                    msgContainer.style.opacity = "0";
+                    setTimeout(() => {
+                        msgContainer.style.display = "none";
+                    }, 1500);
+
+                    stage = "gathering";
+                }
+                e.preventDefault();
+            }
+            lastTap = currentTime;
+        });
+
+        // ĐỊNH VỊ CHỮ CÁCH TIM ĐÚNG TRÒN 23PX
+        function positionBottomContainer() {
+            const lowestHeartY = 16 * (IMAGE_ENLARGE * 1.035 * 1.03) + centerY; 
+            bottomContainer.style.top = (lowestHeartY + 23) + "px"; 
+        }
+
+        function heartFunction(t, shrinkRatio = IMAGE_ENLARGE) {
+            const x = 16 * Math.pow(Math.sin(t), 3);
+            const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - 0.9 * Math.cos(4 * t));
+            return {
+                x: x * shrinkRatio + canvas.width / 2,
+                y: y * (shrinkRatio * 1.03) + centerY
+            };
+        }
+
+        function outerHeartFunction(t, shrinkRatio = IMAGE_ENLARGE * 1.12) {
+            const x = 16 * Math.pow(Math.sin(t), 3);
+            let y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - 0.9 * Math.cos(4 * t));
+            
+            const angleFromBottom = Math.abs(t - Math.PI);
+            if (angleFromBottom < 1.0) {
+                const factor = (1.0 - angleFromBottom); 
+                y = y - factor * 2.5; 
+            }
+
+            return {
+                x: x * shrinkRatio + canvas.width / 2,
+                y: y * (shrinkRatio * 1.04) + centerY
+            };
+        }
+
+        function scatterInside(x, y, beta = 0.15) {
+            const ratioX = -beta * Math.log(Math.random());
+            const ratioY = -beta * Math.log(Math.random());
+            const dx = ratioX * (x - canvas.width / 2);
+            const dy = ratioY * (y - centerY);
+            return { x: x - dx, y: y - dy };
+        }
+
+        function curve(p) {
+            return 2 * (2 * Math.sin(4 * p)) / (2 * Math.PI);
+        }
+
+        function mapToParticles(pointsArray) {
+            return pointsArray.map(pt => {
+                const angle = Math.random() * Math.PI * 2;
+                const distance = 250 + Math.random() * 350; 
+                const startX = pt.x + Math.cos(angle) * distance;
+                const startY = pt.y + Math.sin(angle) * distance;
+
+                return {
+                    startX: startX, startY: startY,
+                    targetX: pt.x, targetY: pt.y,
+                    curveAmp: (Math.random() > 0.5 ? 1 : -1) * (60 + Math.random() * 100),
+                    curX: startX, curY: startY,
+                    appearTime: Math.random() 
+                };
+            });
+        }
+
+        function initPoints() {
+            const basePoints = [];
+            const edgePoints = [];
+            const centerPoints = [];
+            const outerLayerPoints = [];
+
+            for (let i = 0; i < 1400; i++) {
+                basePoints.push(heartFunction(Math.random() * Math.PI * 2));
+            }
+            basePoints.forEach(p => {
+                for (let i = 0; i < 2; i++) edgePoints.push(scatterInside(p.x, p.y, 0.05));
+            });
+            for (let i = 0; i < 2000; i++) {
+                const p = basePoints[Math.floor(Math.random() * basePoints.length)];
+                centerPoints.push(scatterInside(p.x, p.y, 0.17));
+            }
+
+            for (let i = 0; i < 1800; i++) {
+                const t = Math.random() * Math.PI * 2;
+                const basePt = outerHeartFunction(t);
+                
+                const dx = basePt.x - canvas.width / 2;
+                const dy = basePt.y - centerY;
+                const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                const spread = (Math.random() - 0.25) * 16; 
+
+                outerLayerPoints.push({
+                    x: basePt.x + (dx / len) * spread,
+                    y: basePt.y + (dy / len) * spread
+                });
+            }
+
+            partBase = mapToParticles(basePoints);
+            partEdge = mapToParticles(edgePoints);
+            partCenter = mapToParticles(centerPoints);
+            partOuter = mapToParticles(outerLayerPoints);
+        }
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            IMAGE_ENLARGE = window.innerWidth < 500 ? 8.0 : 11.5;
+            centerY = window.innerHeight / 2; 
+            initPoints(); 
+            positionBottomContainer();
+        }
+        window.addEventListener('resize', resize);
+
+        for (let i = 0; i < 350; i++) {
+            borderFlowParticles.push({
+                t: Math.random() * Math.PI * 2, 
+                speed: 0.003 + Math.random() * 0.005, 
+                size: 1.0 + Math.random() * 1.8,
+                offsetAmp: 0.4 + Math.random() * 1.2 
+            });
+        }
+
+        function calcFixedHeartPosition(x, y, ratio) {
+            const force = 1 / Math.pow(Math.pow(x - canvas.width / 2, 2) + Math.pow(y - centerY, 2), 0.520);
+            const dx = ratio * force * (x - canvas.width / 2);
+            const dy = ratio * force * (y - centerY);
+            return { x: x - dx, y: y - dy };
+        }
+
+        function getDynamicColor(progress) {
+            const r = 255;
+            const g = Math.floor(102 - (102 * progress));
+            const b = Math.floor(178 - (161 * progress));
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        function drawMiniHeart(ctx, x, y, size, angle, color) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+            ctx.beginPath();
+            ctx.fillStyle = color;
+            ctx.moveTo(0, 0);
+            ctx.bezierCurveTo(-size / 2, -size / 2, -size, size / 3, 0, size);
+            ctx.bezierCurveTo(size, size / 3, size / 2, -size / 2, 0, 0);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        resize();
+
+        let frame = 0;
+        let subTextStage = 0; 
+        let heartbeatStartTime = 0;
+
+        function animate() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.24)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (stage === "typing" || stage === "waiting_click") {
+                // Đợi click
+            } 
+            else if (stage === "gathering") {
+                gatherProgress += 0.0025; 
+                if (gatherProgress >= 1) {
+                    gatherProgress = 1;
+                    stage = "heartbeat";
+                    heartbeatStartTime = Date.now();
+                }
+
+                const ease = Math.pow(gatherProgress, 2.5);
+                const wave = Math.sin(gatherProgress * Math.PI) * (1 - gatherProgress);
+
+                ctx.fillStyle = "#ff5588"; 
+
+                const drawGather = (p) => {
+                    if (ease < p.appearTime * 0.6) return; 
+                    p.curX = p.startX + (p.targetX - p.startX) * ease + Math.sin(ease * Math.PI) * p.curveAmp * wave;
+                    p.curY = p.startY + (p.targetY - p.startY) * ease + Math.cos(ease * Math.PI) * p.curveAmp * wave;
+                    ctx.fillRect(p.curX, p.curY, 1.8, 1.8);
+                };
+
+                partBase.forEach(drawGather);
+                partEdge.forEach(drawGather);
+                partCenter.forEach(drawGather);
+                partOuter.forEach(drawGather); 
+
+                let maxHeartsDuringGather = Math.floor(gatherProgress * 150);
+                if (fallingHearts.length < maxHeartsDuringGather) {
+                    fallingHearts.push({
+                        x: Math.random() * canvas.width,
+                        y: -10,
+                        size: 2 + Math.random() * 3, 
+                        speedX: (Math.random() - 0.5) * 1.2, 
+                        speedY: 2.0 + Math.random() * 2.5, 
+                        angle: (Math.random() - 0.5) * 0.5, 
+                        rotSpeed: (Math.random() - 0.5) * 0.03, 
+                        color: Math.random() > 0.4 ? 'rgba(255, 120, 185, 0.85)' : 'rgba(255, 50, 50, 0.85)' 
+                    });
+                }
+            } 
+            else if (stage === "heartbeat") {
+                if (colorProgress < 1) colorProgress += 0.01; 
+
+                const currentColor = getDynamicColor(colorProgress);
+                const ratio = 10 * curve((frame / 35) * Math.PI);
+                
+                // 1. Lõi tim trong
+                ctx.fillStyle = currentColor;
+                partBase.forEach(pt => {
+                    const p = calcFixedHeartPosition(pt.targetX, pt.targetY, ratio);
+                    ctx.fillRect(p.x, p.y, Math.floor(Math.random() * 3) + 1, Math.floor(Math.random() * 3) + 1);
+                });
+                partEdge.forEach(pt => {
+                    const p = calcFixedHeartPosition(pt.targetX, pt.targetY, ratio);
+                    ctx.fillRect(p.x, p.y, Math.floor(Math.random() * 2) + 1, Math.floor(Math.random() * 2) + 1);
+                });
+                partCenter.forEach(pt => {
+                    const p = calcFixedHeartPosition(pt.targetX, pt.targetY, ratio);
+                    ctx.fillRect(p.x, p.y, Math.floor(Math.random() * 2) + 1, Math.floor(Math.random() * 2) + 1);
+                });
+
+                // 2. Viền ngoài tủa hạt
+                ctx.fillStyle = 'rgba(255, 25, 55, 0.9)';
+                partOuter.forEach(pt => {
+                    const p = calcFixedHeartPosition(pt.targetX, pt.targetY, ratio);
+                    ctx.fillRect(p.x, p.y, Math.floor(Math.random() * 3) + 1.5, Math.floor(Math.random() * 3) + 1.5);
+                });
+
+                // 3. Viền hồng bọc ôm sát rìa lõi tim trong
+                ctx.fillStyle = 'rgba(255, 140, 190, 0.95)'; 
+                borderFlowParticles.forEach(p => {
+                    p.t += p.speed; 
+                    if (p.t > Math.PI * 2) p.t -= Math.PI * 2;
+
+                    let pos = heartFunction(p.t, IMAGE_ENLARGE * 1.035);
+                    const waveOffset = Math.sin(frame * 0.05 + p.t * 10) * p.offsetAmp;
+                    const force = 1 / Math.pow(Math.pow(pos.x - canvas.width / 2, 2) + Math.pow(pos.y - centerY, 2), 0.520);
+                    
+                    pos.x -= ratio * force * (pos.x - canvas.width / 2) - Math.sin(p.t) * waveOffset;
+                    pos.y -= ratio * force * (pos.y - centerY) - Math.cos(p.t) * waveOffset;
+
+                    ctx.fillRect(pos.x, pos.y, p.size, p.size);
+                });
+
+                // 4. Mưa tim rơi nhẹ
+                if (fallingHearts.length < 150) { 
+                    fallingHearts.push({
+                        x: Math.random() * canvas.width,
+                        y: -10,
+                        size: 2 + Math.random() * 3, 
+                        speedX: (Math.random() - 0.5) * 1.2, 
+                        speedY: 2.0 + Math.random() * 2.5, 
+                        angle: (Math.random() - 0.5) * 0.5, 
+                        rotSpeed: (Math.random() - 0.5) * 0.03, 
+                        color: Math.random() > 0.4 ? 'rgba(255, 120, 185, 0.85)' : 'rgba(255, 50, 50, 0.85)' 
+                    });
+                }
+
+                // 5. CHUỖI CHẠY CHỮ VÀ HIỆU ỨNG ẨN ĐOẠN 4
+                let timeElapsed = Date.now() - heartbeatStartTime;
+                
+                if (subTextStage === 0 && timeElapsed > 2500) { 
+                    subTextStage = 1;
+                    subTextElem.style.display = "block";
+                    setTimeout(() => { subTextElem.classList.add('show'); }, 50);
+                    
+                    typeWriter("subText", subStr1, 65, () => {
+                        setTimeout(() => {
+                            subTextElem.classList.remove('show');
+                            setTimeout(() => { subTextStage = 2; }, 1200);
+                        }, 3500);
+                    });
+                } 
+                else if (subTextStage === 2) { 
+                    subTextStage = 3;
+                    subTextElem.innerHTML = "";
+                    setTimeout(() => { subTextElem.classList.add('show'); }, 50);
+                    
+                    typeWriter("subText", subStr2, 65, () => {
+                        setTimeout(() => {
+                            subTextElem.classList.remove('show');
+                            setTimeout(() => { subTextStage = 4; }, 1200);
+                        }, 3000);
+                    });
+                }
+                else if (subTextStage === 4) { // Đoạn 3 (Cắt đến chữ "ai khác.")
+                    subTextStage = 5;
+                    subTextElem.innerHTML = "";
+                    setTimeout(() => { subTextElem.classList.add('show'); }, 50);
+                    
+                    typeWriter("subText", subStr3, 65, () => {
+                        setTimeout(() => {
+                            subTextElem.classList.remove('show');
+                            setTimeout(() => { subTextStage = 6; }, 1200);
+                        }, 4000);
+                    });
+                }
+                else if (subTextStage === 6) { // Đoạn 4 (Bắt đầu từ "Nhưng ở thời điểm hiện tại...")
+                    subTextStage = 7;
+                    subTextElem.innerHTML = "";
+                    setTimeout(() => { subTextElem.classList.add('show'); }, 50);
+                    
+                    typeWriter("subText", subStr4, 65, () => {
+                        setTimeout(() => {
+                            // Tự động biến mất sau khi đọc xong 5 giây
+                            subTextElem.classList.remove('show');
+                            setTimeout(() => { subTextStage = 8; }, 1200);
+                        }, 5000);
+                    });
+                }
+            }
+
+            // Cơn mưa tim rơi tự do
+            for (let i = fallingHearts.length - 1; i >= 0; i--) {
+                const h = fallingHearts[i];
+                h.x += h.speedX;
+                h.y += h.speedY;
+                h.angle += h.rotSpeed;
+
+                drawMiniHeart(ctx, h.x, h.y, h.size, h.angle, h.color);
+
+                if (h.y > canvas.height + 10 || h.x < -10 || h.x > canvas.width + 10) {
+                    fallingHearts.splice(i, 1);
+                }
+            }
+
+            // Hạt lấp lánh diện rộng
+            if (stage === "gathering" || stage === "heartbeat") {
+                if (sparkles.length < 140) {
+                    let randColorType = Math.random();
+                    let colorStr = `rgba(255, 255, 255,`; 
+                    if (randColorType > 0.66) {
+                        colorStr = `rgba(255, 102, 178,`; 
+                    } else if (randColorType > 0.33) {
+                        colorStr = `rgba(255, 50, 50,`;   
+                    }
+
+                    sparkles.push({
+                        x: Math.random() * canvas.width,
+                        y: Math.random() * (stage === "gathering" ? canvas.height : -10), 
+                        size: 0.6 + Math.random() * 1.8,
+                        alpha: 0.3 + Math.random() * 0.7,
+                        speedY: 1.2 + Math.random() * 1.8, 
+                        speedX: (Math.random() - 0.5) * 0.6,
+                        color: colorStr
+                    });
+                }
+
+                for (let i = sparkles.length - 1; i >= 0; i--) {
+                    const s = sparkles[i];
+                    s.y += s.speedY;
+                    s.x += s.speedX;
+                    
+                    if(s.y > canvas.height * 0.6) {
+                        s.alpha -= 0.005;
+                    }
+
+                    ctx.fillStyle = s.color + s.alpha + ')';
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    if (s.y > canvas.height || s.alpha <= 0 || s.x < -10 || s.x > canvas.width + 10) {
+                        sparkles.splice(i, 1);
+                    }
+                }
+            }
+
+            frame++;
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
